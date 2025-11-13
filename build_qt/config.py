@@ -3,7 +3,7 @@ import json
 import questionary
 import os
 import sys
-from typing import Dict
+from typing import Dict, Tuple
 import platform
 import subprocess
 from build_qt.utils import detect_platform, download_component, extract_archive
@@ -21,7 +21,10 @@ class Config:
         self.system = platform.system()
         self.make_tools = 'mingw32-make' if self.system == 'Windows' else 'make'
         plat = detect_platform()
-        self.ohos_sdk_downloader = OhosSdkDownloader(os_type=plat['osType'], os_arch=plat['osArch'], support_version=self.ohos_support_version())
+        self.ohos_sdk_downloader = OhosSdkDownloader(url=self.ohos_sdk_list_url(),
+                                                     os_type=plat['osType'],
+                                                     os_arch=plat['osArch'],
+                                                     support_version=self.ohos_support_version())
         if sys.stdout.isatty():
             self.init_user_config()
         # else:
@@ -29,10 +32,10 @@ class Config:
         user_config_path = os.path.join(self.root_path, 'configure.json.user')
         with open(user_config_path, 'r', encoding='utf-8') as f:
             self.user_config = json.load(f)
-        self.perl_path = self.get_perl_path()
-        self.mingw_path = self.get_mingw_path()
-        self.openssl_path = self.get_openssl_path()
-        self.ohos_sdk_path = self.get_ohos_sdk_path()
+        self.perl_path = self.get_build_tool_path('perl')
+        self.mingw_path = self.get_build_tool_path('mingw')
+        self.openssl_path = self.get_path('openssl')
+        self.ohos_sdk_path = self.get_path('ohos_sdk')
 
 
     def init_user_config(self):
@@ -50,21 +53,17 @@ class Config:
                     'type': 'path',
                     'name': 'perl',
                     'message': '请配置perl路径（默认则自动下载）：',
-                    'default': self.get_perl_path(),
+                    'default': lambda the_answers: os.path.join(the_answers['working_dir'], 'perl')
+                                if 'working_dir' in the_answers else self.get_build_tool_path('perl'),
                     'when': platform.system() != 'Windows'
                 },
                 {
                     'type': 'path',
                     'name': 'mingw',
                     'message': '请配置mingw路径（默认则自动下载）：',
-                    'default': self.get_mingw_path(),
+                    'default': lambda the_answers: os.path.join(the_answers['working_dir'], 'mingw')
+                                if 'working_dir' in the_answers else self.get_build_tool_path('mingw'),
                     'when': platform.system() != 'Windows'
-                },
-                {
-                    'type': 'path',
-                    'name': 'ohos_sdk',
-                    'message': '请配置OpenHarmony SDK路径（默认则自动下载）：',
-                    'default': self.get_ohos_sdk_path()
                 },
                 {
                     'type': 'select',
@@ -72,6 +71,13 @@ class Config:
                     'message': '请选择OpenHarmony SDK版本：',
                     'choices': self.ohos_sdk_downloader.get_supported_versions(),
                     'default': str(self.ohos_version())
+                },
+                {
+                    'type': 'path',
+                    'name': 'ohos_sdk',
+                    'message': '请配置OpenHarmony SDK路径（默认则自动下载）：',
+                    'default': lambda the_answers: os.path.join(the_answers['working_dir'], 'ohos_sdk', the_answers['ohos_version'])
+                                if 'working_dir' in the_answers and 'ohos_version' in the_answers else self.get_path('ohos_sdk')
                 },
                 {
                     'type': 'select',
@@ -241,37 +247,30 @@ class Config:
     def get_output_path(self):
         return os.path.join(self.get_working_dir(), 'output')
 
-    def get_perl_path(self):
-        _perl_path = self.get_config_value('perl')
-        if '${pwd}' in _perl_path:
-            _perl_path = _perl_path.replace('${pwd}', self.root_path)
-        _perl_path = os.path.abspath(os.path.expanduser(_perl_path))
-        return _perl_path
+    def replace_config_keys(self, old_str: str):
+        config_keys = self.get_user_config().keys()
+        if '${pwd}' in old_str:
+            old_str = old_str.replace('${pwd}', self.root_path)
+        old_str = os.path.abspath(os.path.expanduser(old_str))
+        for key in config_keys:
+            pattern = '${{{}}}'.format(key)
+            if pattern in old_str:
+                old_str = old_str.replace(pattern, str(self.get_config_value(key)))
+        return old_str
 
-    def get_mingw_path(self):
-        _mingw_path = self.get_config_value('mingw')
-        if '${pwd}' in _mingw_path:
-            _mingw_path = _mingw_path.replace('${pwd}', self.root_path)
-        _mingw_path = os.path.abspath(os.path.expanduser(_mingw_path))
-        return _mingw_path
+    def get_path(self, tool_name: str):
+        path = self.get_config_value(tool_name)
+        return self.replace_config_keys(path)
 
-    def get_openssl_path(self):
-        _openssl_path = self.get_config_value('openssl')
-        if '${pwd}' in _openssl_path:
-            _openssl_path = _openssl_path.replace('${pwd}', self.root_path)
-        if '${build_ohos_abi}' in _openssl_path:
-            _openssl_path = _openssl_path.replace('${build_ohos_abi}', self.build_ohos_abi())
-        _openssl_path = os.path.abspath(os.path.expanduser(_openssl_path))
-        return _openssl_path
+    def get_build_tool_path(self, tool_name: str):
+        tool_path = self.get_path(tool_name)
+        # 判断是否有bin目录
+        bin_dir = os.path.join(tool_path, 'bin')
+        return bin_dir if os.path.isdir(bin_dir) else tool_path
 
-    def get_ohos_sdk_path(self):
-        _ohos_sdk_path = self.get_config_value('ohos_sdk')
-        if '${pwd}' in _ohos_sdk_path:
-            _ohos_sdk_path = _ohos_sdk_path.replace('${pwd}', self.root_path)
-        if '${ohos_version}' in _ohos_sdk_path:
-            _ohos_sdk_path = _ohos_sdk_path.replace('${ohos_version}', str(self.ohos_version()))
-        _ohos_sdk_path = os.path.abspath(os.path.expanduser(_ohos_sdk_path))
-        return _ohos_sdk_path
+    def ohos_sdk_list_url(self) -> Tuple[str, str]:
+        back_url = 'gh_url' if self.use_gh else 'gc_url'
+        return self.get_depends().get('ohos_sdk').get('url'), self.get_depends().get('ohos_sdk').get(back_url)
 
     def ohos_support_version(self):
         return self.get_depends().get('ohos_sdk').get('support_version')
@@ -380,6 +379,9 @@ class Config:
         result += ['-{}'.format(self.build_type())]
         result += ['-device-option', 'OHOS_ARCH={}'.format(self.build_ohos_abi())]
         result += ['-make-tool', '{} -j{}'.format(self.make_tools, self.build_jobs())]
+        features = self.get_config_value('features')
+        for feature in features:
+            result += ['-feature-{}'.format(feature)]
         if self.get_config_value('verbose'):
             result += ['-verbose']
         return result

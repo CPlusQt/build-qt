@@ -32,6 +32,8 @@
         },
         "ohos_sdk":{
             "url": "https://repo.harmonyos.com/sdkmanager/v5/ohos/getSdkList",
+            "gc_url": "https://gitcode.com/Li-Yaosong/prebuilt/releases/download/1.0.0/getSdkList",
+            "gh_url": "https://github.com/liys-online/prebuilt/releases/download/1.0.0/getSdkList",
             "support_version": "6.0-ohos-single-2"
         }
     },
@@ -46,6 +48,7 @@
         "ohos_sdk": "${pwd}/work/ohos-sdk/${ohos_version}",
         "ohos_version": 15,
         "build_type": "release",
+        "features": ["ipc_posix"],
         "build_ohos_abi": "arm64-v8a",
         "build_qt_tag": "v5.15.12-lts-lgpl",
         "build_ohqt_tag": "master",
@@ -74,6 +77,18 @@
             "qtlocation", 
             "qtgamepad", 
             "qtscript", 
+            "qtwebview"
+        ]
+    },
+    "v5.15.17-lts-lgpl": {
+        "-skip": [
+            "qtpim",
+            "qtvirtualkeyboard",
+            "qtwebengine",
+            "qtsystems",
+            "qtlocation",
+            "qtgamepad",
+            "qtscript",
             "qtwebview"
         ]
     },
